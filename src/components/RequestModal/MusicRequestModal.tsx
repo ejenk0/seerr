@@ -15,7 +15,7 @@ import type { MusicDetails } from '@server/models/Music';
 import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
+import useToasts from '@app/hooks/useToasts';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestModal', {

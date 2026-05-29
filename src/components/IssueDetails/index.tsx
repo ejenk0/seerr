@@ -9,6 +9,7 @@ import IssueDescription from '@app/components/IssueDetails/IssueDescription';
 import { issueOptions } from '@app/components/IssueModal/constants';
 import useDeepLinks from '@app/hooks/useDeepLinks';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
@@ -34,7 +35,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
 import { FormattedRelativeTime, useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 import * as Yup from 'yup';
 
@@ -147,7 +147,7 @@ const IssueDetails = () => {
         autoDismiss: true,
       });
       revalidateIssue();
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.toasteditdescriptionfailed), {
         appearance: 'error',
         autoDismiss: true,
@@ -165,7 +165,7 @@ const IssueDetails = () => {
       });
       revalidateIssue();
       mutate('/api/v1/issue/count');
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.toaststatusupdatefailed), {
         appearance: 'error',
         autoDismiss: true,
@@ -183,7 +183,7 @@ const IssueDetails = () => {
         autoDismiss: true,
       });
       router.push('/issues');
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.toastissuedeletefailed), {
         appearance: 'error',
         autoDismiss: true,
@@ -412,7 +412,7 @@ const IssueDetails = () => {
                 </span>
               </div>
             </div>
-            <div className="mt-4 mb-6 flex flex-col space-y-2">
+            <div className="mb-6 mt-4 flex flex-col space-y-2">
               {issueData?.media.mediaUrl && (
                 <Button
                   as="a"
@@ -430,13 +430,13 @@ const IssueDetails = () => {
                           mediaServerName: 'Emby',
                         })
                       : settings.currentSettings.mediaServerType ===
-                        MediaServerType.PLEX
-                      ? intl.formatMessage(messages.playonplex, {
-                          mediaServerName: 'Plex',
-                        })
-                      : intl.formatMessage(messages.playonplex, {
-                          mediaServerName: 'Jellyfin',
-                        })}
+                          MediaServerType.PLEX
+                        ? intl.formatMessage(messages.playonplex, {
+                            mediaServerName: 'Plex',
+                          })
+                        : intl.formatMessage(messages.playonplex, {
+                            mediaServerName: 'Jellyfin',
+                          })}
                   </span>
                 </Button>
               )}
@@ -478,13 +478,13 @@ const IssueDetails = () => {
                           mediaServerName: 'Emby',
                         })
                       : settings.currentSettings.mediaServerType ===
-                        MediaServerType.PLEX
-                      ? intl.formatMessage(messages.play4konplex, {
-                          mediaServerName: 'Plex',
-                        })
-                      : intl.formatMessage(messages.play4konplex, {
-                          mediaServerName: 'Jellyfin',
-                        })}
+                          MediaServerType.PLEX
+                        ? intl.formatMessage(messages.play4konplex, {
+                            mediaServerName: 'Plex',
+                          })
+                        : intl.formatMessage(messages.play4konplex, {
+                            mediaServerName: 'Jellyfin',
+                          })}
                   </span>
                 </Button>
               )}
@@ -525,7 +525,7 @@ const IssueDetails = () => {
               />
             ))}
             {otherComments.length === 0 && (
-              <div className="mt-4 mb-10 text-gray-400">
+              <div className="mb-10 mt-4 text-gray-400">
                 <span>{intl.formatMessage(messages.nocomments)}</span>
               </div>
             )}
@@ -678,7 +678,7 @@ const IssueDetails = () => {
               </span>
             </div>
           </div>
-          <div className="mt-4 mb-6 flex flex-col space-y-2">
+          <div className="mb-6 mt-4 flex flex-col space-y-2">
             {issueData?.media.mediaUrl && (
               <Button
                 as="a"
@@ -696,13 +696,13 @@ const IssueDetails = () => {
                         mediaServerName: 'Emby',
                       })
                     : settings.currentSettings.mediaServerType ===
-                      MediaServerType.PLEX
-                    ? intl.formatMessage(messages.playonplex, {
-                        mediaServerName: 'Plex',
-                      })
-                    : intl.formatMessage(messages.playonplex, {
-                        mediaServerName: 'Jellyfin',
-                      })}
+                        MediaServerType.PLEX
+                      ? intl.formatMessage(messages.playonplex, {
+                          mediaServerName: 'Plex',
+                        })
+                      : intl.formatMessage(messages.playonplex, {
+                          mediaServerName: 'Jellyfin',
+                        })}
                 </span>
               </Button>
             )}
@@ -743,13 +743,13 @@ const IssueDetails = () => {
                         mediaServerName: 'Emby',
                       })
                     : settings.currentSettings.mediaServerType ===
-                      MediaServerType.PLEX
-                    ? intl.formatMessage(messages.play4konplex, {
-                        mediaServerName: 'Plex',
-                      })
-                    : intl.formatMessage(messages.play4konplex, {
-                        mediaServerName: 'Jellyfin',
-                      })}
+                        MediaServerType.PLEX
+                      ? intl.formatMessage(messages.play4konplex, {
+                          mediaServerName: 'Plex',
+                        })
+                      : intl.formatMessage(messages.play4konplex, {
+                          mediaServerName: 'Jellyfin',
+                        })}
                 </span>
               </Button>
             )}

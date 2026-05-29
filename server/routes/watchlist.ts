@@ -7,6 +7,7 @@ import logger from '@server/logger';
 import { Router } from 'express';
 import { QueryFailedError } from 'typeorm';
 
+import { MediaType } from '@server/constants/media';
 import { watchlistCreate } from '@server/interfaces/api/watchlistCreate';
 
 const watchlistRoutes = Router();
@@ -58,16 +59,37 @@ watchlistRoutes.delete('/:id', async (req, res, next) => {
     });
   }
   try {
-    const id = isNaN(Number(req.params.id))
-      ? req.params.id
-      : Number(req.params.id);
+    // Music items are identified by a MusicBrainz id (string) and do not
+    // include a mediaType query parameter; movies/TV use a numeric tmdbId
+    // disambiguated by the required mediaType query parameter.
+    const isNumericId = !isNaN(Number(req.params.id));
 
-    await Watchlist.deleteWatchlist(id, req.user);
+    if (isNumericId) {
+      const mediaType = req.query.mediaType;
+      if (mediaType !== MediaType.MOVIE && mediaType !== MediaType.TV) {
+        return next({
+          status: 400,
+          message: 'Invalid mediaType query parameter.',
+        });
+      }
+
+      await Watchlist.deleteWatchlist(
+        Number(req.params.id),
+        mediaType,
+        req.user
+      );
+    } else {
+      await Watchlist.deleteWatchlist(
+        req.params.id,
+        MediaType.MUSIC,
+        req.user
+      );
+    }
     return res.status(204).send();
   } catch (e) {
     if (e instanceof NotFoundError) {
       return next({
-        status: 401,
+        status: 404,
         message: e.message,
       });
     }

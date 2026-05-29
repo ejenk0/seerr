@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import type { OnChangeValue } from 'react-select';
 import Select from 'react-select';
-import { useToasts } from 'react-toast-notifications';
+import useToasts from '@app/hooks/useToasts';
 import * as Yup from 'yup';
 
 type OptionType = {

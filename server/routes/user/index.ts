@@ -4,7 +4,7 @@ import TautulliAPI from '@server/api/tautulli';
 import { MediaType } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
 import { UserType } from '@server/constants/user';
-import { getRepository } from '@server/datasource';
+import dataSource, { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import { User } from '@server/entity/User';
@@ -17,15 +17,18 @@ import type {
   UserResultsResponse,
   UserWatchDataResponse,
 } from '@server/interfaces/api/userInterfaces';
-import { hasPermission, Permission } from '@server/lib/permissions';
+import { Permission, hasPermission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
 import { getHostname } from '@server/utils/getHostname';
+import { normalizeJellyfinGuid } from '@server/utils/jellyfin';
+import { isOwnProfileOrAdmin } from '@server/utils/profileMiddleware';
 import { Router } from 'express';
 import gravatarUrl from 'gravatar-url';
 import { findIndex, sortBy } from 'lodash';
-import { In } from 'typeorm';
+import type { EntityManager } from 'typeorm';
+import { In, Not } from 'typeorm';
 import userSettingsRoutes from './usersettings';
 
 const router = Router();
@@ -42,6 +45,35 @@ router.get('/', async (req, res, next) => {
       : Math.max(10, includeIds.length);
     const skip = req.query.skip ? Number(req.query.skip) : 0;
     const q = req.query.q ? req.query.q.toString().toLowerCase() : '';
+    const sortParam = req.query.sort ? req.query.sort.toString() : undefined;
+    const sortDirectionQuery = req.query.sortDirection
+      ? req.query.sortDirection.toString().toLowerCase()
+      : undefined;
+
+    let sortDirection: 'ASC' | 'DESC';
+    if (sortDirectionQuery === 'asc') {
+      sortDirection = 'ASC';
+    } else if (sortDirectionQuery === 'desc') {
+      sortDirection = 'DESC';
+    } else {
+      switch (sortParam) {
+        case 'displayname':
+          sortDirection = 'ASC';
+          break;
+        case 'requests':
+        case 'updated':
+          sortDirection = 'DESC';
+          break;
+        case 'created':
+        case 'usertype':
+        case 'role':
+        case undefined:
+        default:
+          sortDirection = 'ASC';
+          break;
+      }
+    }
+
     let query = getRepository(User).createQueryBuilder('user');
 
     if (q) {
@@ -55,29 +87,32 @@ router.get('/', async (req, res, next) => {
       query.andWhereInIds(includeIds);
     }
 
-    switch (req.query.sort) {
+    switch (sortParam) {
+      case 'created':
+        query = query.orderBy('user.createdAt', sortDirection);
+        break;
       case 'updated':
-        query = query.orderBy('user.updatedAt', 'DESC');
+        query = query.orderBy('user.updatedAt', sortDirection);
         break;
       case 'displayname':
         query = query
           .addSelect(
             `CASE WHEN (user.username IS NULL OR user.username = '') THEN (
-              CASE WHEN (user.plexUsername IS NULL OR user.plexUsername = '') THEN (
-                CASE WHEN (user.jellyfinUsername IS NULL OR user.jellyfinUsername = '') THEN
-                  "user"."email"
+                CASE WHEN (user.plexUsername IS NULL OR user.plexUsername = '') THEN (
+                  CASE WHEN (user.jellyfinUsername IS NULL OR user.jellyfinUsername = '') THEN
+                    "user"."email"
+                  ELSE
+                    LOWER(user.jellyfinUsername)
+                  END)
                 ELSE
-                  LOWER(user.jellyfinUsername)
+                  LOWER(user.plexUsername)
                 END)
               ELSE
-                LOWER(user.jellyfinUsername)
-              END)
-            ELSE
-              LOWER(user.username)
-            END`,
+                LOWER(user.username)
+              END`,
             'displayname_sort_key'
           )
-          .orderBy('displayname_sort_key', 'ASC');
+          .orderBy('displayname_sort_key', sortDirection);
         break;
       case 'requests':
         query = query
@@ -87,10 +122,25 @@ router.get('/', async (req, res, next) => {
               .from(MediaRequest, 'request')
               .where('request.requestedBy.id = user.id');
           }, 'request_count')
-          .orderBy('request_count', 'DESC');
+          .orderBy('request_count', sortDirection);
+        break;
+      case 'usertype':
+        query = query.orderBy('user.userType', sortDirection);
+        break;
+      case 'role':
+        query = query
+          .addSelect(
+            `CASE
+              WHEN user.id = 1 THEN 0
+              WHEN (user.permissions & ${Permission.ADMIN}) != 0 THEN 1
+              ELSE 2
+            END`,
+            'role_sort_key'
+          )
+          .orderBy('role_sort_key', sortDirection);
         break;
       default:
-        query = query.orderBy('user.id', 'ASC');
+        query = query.orderBy('user.id', sortDirection);
         break;
     }
 
@@ -188,33 +238,85 @@ router.post<
   }
 >('/registerPushSubscription', async (req, res, next) => {
   try {
-    const userPushSubRepository = getRepository(UserPushSubscription);
+    // This prevents race conditions where two requests both pass the checks
+    await dataSource.transaction(
+      async (transactionalEntityManager: EntityManager) => {
+        const transactionalRepo =
+          transactionalEntityManager.getRepository(UserPushSubscription);
 
-    const existingSubs = await userPushSubRepository.find({
-      relations: { user: true },
-      where: { auth: req.body.auth, user: { id: req.user?.id } },
-    });
+        // Check for existing subscription by auth or endpoint within transaction
+        const existingSubscription = await transactionalRepo.findOne({
+          relations: { user: true },
+          where: [
+            { auth: req.body.auth, user: { id: req.user?.id } },
+            { endpoint: req.body.endpoint, user: { id: req.user?.id } },
+          ],
+        });
 
-    if (existingSubs.length > 0) {
-      logger.debug(
-        'User push subscription already exists. Skipping registration.',
-        { label: 'API' }
-      );
-      return res.status(204).send();
-    }
+        if (existingSubscription) {
+          // If endpoint matches but auth is different, update with new keys (iOS refresh case)
+          if (
+            existingSubscription.endpoint === req.body.endpoint &&
+            existingSubscription.auth !== req.body.auth
+          ) {
+            existingSubscription.auth = req.body.auth;
+            existingSubscription.p256dh = req.body.p256dh;
+            existingSubscription.userAgent = req.body.userAgent;
 
-    const userPushSubscription = new UserPushSubscription({
-      auth: req.body.auth,
-      endpoint: req.body.endpoint,
-      p256dh: req.body.p256dh,
-      userAgent: req.body.userAgent,
-      user: req.user,
-    });
+            await transactionalRepo.save(existingSubscription);
 
-    userPushSubRepository.save(userPushSubscription);
+            logger.debug(
+              'Updated existing push subscription with new keys for same endpoint.',
+              { label: 'API' }
+            );
+            return;
+          }
+
+          logger.debug(
+            'Duplicate subscription detected. Skipping registration.',
+            { label: 'API' }
+          );
+          return;
+        }
+
+        // Clean up old subscriptions from the same device (userAgent) for this user
+        // iOS can silently refresh endpoints, leaving stale subscriptions in the database
+        // Only clean up if we're creating a new subscription (not updating an existing one)
+        if (req.body.userAgent) {
+          const staleSubscriptions = await transactionalRepo.find({
+            relations: { user: true },
+            where: {
+              userAgent: req.body.userAgent,
+              user: { id: req.user?.id },
+              // Only remove subscriptions with different endpoints (stale ones)
+              // Keep subscriptions that might be from different browsers/tabs
+              endpoint: Not(req.body.endpoint),
+            },
+          });
+
+          if (staleSubscriptions.length > 0) {
+            await transactionalRepo.remove(staleSubscriptions);
+            logger.debug(
+              `Removed ${staleSubscriptions.length} stale push subscription(s) from same device.`,
+              { label: 'API' }
+            );
+          }
+        }
+
+        const userPushSubscription = new UserPushSubscription({
+          auth: req.body.auth,
+          endpoint: req.body.endpoint,
+          p256dh: req.body.p256dh,
+          userAgent: req.body.userAgent,
+          user: req.user,
+        });
+
+        await transactionalRepo.save(userPushSubscription);
+      }
+    );
 
     return res.status(204).send();
-  } catch (e) {
+  } catch {
     logger.error('Failed to register user push subscription', {
       label: 'API',
     });
@@ -222,26 +324,28 @@ router.post<
   }
 });
 
-router.get<{ userId: number }>(
-  '/:userId/pushSubscriptions',
+router.get<{ id: string }>(
+  '/:id/pushSubscriptions',
+  isOwnProfileOrAdmin(),
   async (req, res, next) => {
     try {
       const userPushSubRepository = getRepository(UserPushSubscription);
 
       const userPushSubs = await userPushSubRepository.find({
         relations: { user: true },
-        where: { user: { id: req.params.userId } },
+        where: { user: { id: Number(req.params.id) } },
       });
 
       return res.status(200).json(userPushSubs);
-    } catch (e) {
+    } catch {
       next({ status: 404, message: 'User subscriptions not found.' });
     }
   }
 );
 
-router.get<{ userId: number; endpoint: string }>(
-  '/:userId/pushSubscription/:endpoint',
+router.get<{ id: string; endpoint: string }>(
+  '/:id/pushSubscription/:endpoint',
+  isOwnProfileOrAdmin(),
   async (req, res, next) => {
     try {
       const userPushSubRepository = getRepository(UserPushSubscription);
@@ -251,20 +355,21 @@ router.get<{ userId: number; endpoint: string }>(
           user: true,
         },
         where: {
-          user: { id: req.params.userId },
+          user: { id: Number(req.params.id) },
           endpoint: req.params.endpoint,
         },
       });
 
       return res.status(200).json(userPushSub);
-    } catch (e) {
+    } catch {
       next({ status: 404, message: 'User subscription not found.' });
     }
   }
 );
 
-router.delete<{ userId: number; endpoint: string }>(
-  '/:userId/pushSubscription/:endpoint',
+router.delete<{ id: string; endpoint: string }>(
+  '/:id/pushSubscription/:endpoint',
+  isOwnProfileOrAdmin(),
   async (req, res, next) => {
     try {
       const userPushSubRepository = getRepository(UserPushSubscription);
@@ -272,7 +377,7 @@ router.delete<{ userId: number; endpoint: string }>(
       const userPushSub = await userPushSubRepository.findOne({
         relations: { user: true },
         where: {
-          user: { id: req.params.userId },
+          user: { id: Number(req.params.id) },
           endpoint: req.params.endpoint,
         },
       });
@@ -302,18 +407,42 @@ router.delete<{ userId: number; endpoint: string }>(
 router.get<{ id: string }>('/:id', async (req, res, next) => {
   try {
     const userRepository = getRepository(User);
-
     const user = await userRepository.findOneOrFail({
       where: { id: Number(req.params.id) },
     });
 
-    return res
-      .status(200)
-      .json(user.filter(req.user?.hasPermission(Permission.MANAGE_USERS)));
-  } catch (e) {
+    const isOwnProfile = req.user?.id === user.id;
+    const isAdmin = req.user?.hasPermission(Permission.MANAGE_USERS);
+
+    return res.status(200).json(user.filter(isOwnProfile || isAdmin));
+  } catch {
     next({ status: 404, message: 'User not found.' });
   }
 });
+
+router.get<{ jellyfinUserId: string }>(
+  '/jellyfin/:jellyfinUserId',
+  async (req, res, next) => {
+    try {
+      const userRepository = getRepository(User);
+
+      const jellyfinUserId = normalizeJellyfinGuid(req.params.jellyfinUserId);
+      if (!jellyfinUserId) {
+        return next({ status: 400, message: 'Invalid Jellyfin User ID.' });
+      }
+
+      const user = await userRepository.findOneOrFail({
+        where: { jellyfinUserId },
+      });
+
+      return res
+        .status(200)
+        .json(user.filter(req.user?.hasPermission(Permission.MANAGE_USERS)));
+    } catch {
+      next({ status: 404, message: 'User not found.' });
+    }
+  }
+);
 
 router.use('/:id/settings', userSettingsRoutes);
 
@@ -455,7 +584,7 @@ router.put<{ id: string }>(
       await userRepository.save(user);
 
       return res.status(200).json(user.filter());
-    } catch (e) {
+    } catch {
       next({ status: 404, message: 'User not found.' });
     }
   }
@@ -622,10 +751,20 @@ router.post(
       jellyfinClient.setUserId(admin.jellyfinUserId ?? '');
       const jellyfinUsers = await jellyfinClient.getUsers();
 
-      for (const jellyfinUserId of body.jellyfinUserIds) {
-        const jellyfinUser = jellyfinUsers.users.find(
-          (user) => user.Id === jellyfinUserId
-        );
+      const jellyfinUsersById = new Map(
+        jellyfinUsers.users.map((user) => [
+          normalizeJellyfinGuid(user.Id),
+          user,
+        ])
+      );
+
+      for (const rawJellyfinUserId of body.jellyfinUserIds) {
+        const jellyfinUserId = normalizeJellyfinGuid(rawJellyfinUserId);
+        if (!jellyfinUserId) {
+          continue;
+        }
+
+        const jellyfinUser = jellyfinUsersById.get(jellyfinUserId);
 
         const user = await userRepository.findOne({
           select: ['id', 'jellyfinUserId'],
@@ -694,18 +833,8 @@ router.get<{ id: string }, QuotaResponse>(
 
 router.get<{ id: string }, UserWatchDataResponse>(
   '/:id/watch_data',
+  isOwnProfileOrAdmin(),
   async (req, res, next) => {
-    if (
-      Number(req.params.id) !== req.user?.id &&
-      !req.user?.hasPermission(Permission.ADMIN)
-    ) {
-      return next({
-        status: 403,
-        message:
-          "You do not have permission to view this user's recently watched media.",
-      });
-    }
-
     const settings = getSettings().tautulli;
 
     if (!settings.hostname || !settings.port || !settings.apiKey) {
@@ -819,7 +948,7 @@ router.get<{ id: string }, WatchlistResponse>(
     }
 
     const itemsPerPage = 20;
-    const page = Number(req.query.page) ?? 1;
+    const page = req.query.page ? Number(req.query.page) : 1;
     const offset = (page - 1) * itemsPerPage;
 
     const user = await getRepository(User).findOneOrFail({

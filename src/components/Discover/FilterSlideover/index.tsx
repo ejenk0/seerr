@@ -20,11 +20,11 @@ import {
 } from '@app/hooks/useUpdateQueryParams';
 import defineMessages from '@app/utils/defineMessages';
 import { XCircleIcon } from '@heroicons/react/24/outline';
+import Datepicker from '@seerr-team/react-tailwindcss-datepicker';
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import type { MultiValue } from 'react-select';
 import AsyncSelect from 'react-select/async';
-import Datepicker from 'react-tailwindcss-datepicker-sct';
 
 const messages = defineMessages('components.Discover.FilterSlideover', {
   filters: 'Filters',

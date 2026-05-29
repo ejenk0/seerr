@@ -277,11 +277,17 @@ searchRoutes.get('/', async (req, res, next) => {
       };
     }
 
-    const movieTvIds = results.results
+    // Movie/TV results are matched on tmdbId disambiguated by mediaType
+    // (develop's refactor); music (album/artist) results are matched on
+    // their MusicBrainz id (string).
+    const movieTvItems = results.results
       .filter(
         (result) => result.media_type === 'movie' || result.media_type === 'tv'
       )
-      .map((result) => Number(result.id));
+      .map((result) => ({
+        tmdbId: Number(result.id),
+        mediaType: result.media_type,
+      }));
 
     const musicIds = results.results
       .filter(
@@ -291,7 +297,9 @@ searchRoutes.get('/', async (req, res, next) => {
       .map((result) => result.id.toString());
 
     const [movieTvMedia, musicMedia] = await Promise.all([
-      movieTvIds.length > 0 ? Media.getRelatedMedia(req.user, movieTvIds) : [],
+      movieTvItems.length > 0
+        ? Media.getRelatedMedia(req.user, movieTvItems)
+        : [],
       musicIds.length > 0 ? Media.getRelatedMedia(req.user, musicIds) : [],
     ]);
 

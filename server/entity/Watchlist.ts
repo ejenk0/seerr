@@ -5,7 +5,7 @@ import Media from '@server/entity/Media';
 import { User } from '@server/entity/User';
 import type { WatchlistItem } from '@server/interfaces/api/discoverInterfaces';
 import logger from '@server/logger';
-import { DbAwareColumn } from '@server/utils/DbColumnHelper';
+import { DbAwareColumn, resolveDbType } from '@server/utils/DbColumnHelper';
 import {
   Column,
   Entity,
@@ -13,6 +13,7 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
   Unique,
+  UpdateDateColumn,
 } from 'typeorm';
 import type { ZodNumber, ZodOptional, ZodString } from 'zod';
 
@@ -25,7 +26,7 @@ export class NotFoundError extends Error {
 }
 
 @Entity()
-@Unique('UNIQUE_USER_DB', ['tmdbId', 'requestedBy'])
+@Unique('UNIQUE_USER_DB', ['tmdbId', 'mediaType', 'requestedBy'])
 @Unique('UNIQUE_USER_FOREIGN', ['mbId', 'requestedBy'])
 export class Watchlist implements WatchlistItem {
   @PrimaryGeneratedColumn()
@@ -52,6 +53,7 @@ export class Watchlist implements WatchlistItem {
     eager: true,
     onDelete: 'CASCADE',
   })
+  @Index()
   public requestedBy: User;
 
   @ManyToOne(() => Media, (media) => media.watchlists, {
@@ -59,15 +61,15 @@ export class Watchlist implements WatchlistItem {
     onDelete: 'CASCADE',
     nullable: false,
   })
+  @Index()
   public media: Media;
 
   @DbAwareColumn({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   public createdAt: Date;
 
-  @DbAwareColumn({
-    type: 'datetime',
+  @UpdateDateColumn({
+    type: resolveDbType('datetime'),
     default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
   })
   public updatedAt: Date;
 
@@ -189,15 +191,17 @@ export class Watchlist implements WatchlistItem {
 
   public static async deleteWatchlist(
     id: Watchlist['tmdbId'] | Watchlist['mbId'],
+    mediaType: MediaType,
     user: User
   ): Promise<Watchlist | null> {
     const watchlistRepository = getRepository(this);
 
-    // Check if the ID is a number (TMDB) or string (MusicBrainz)
+    // Music items are identified by a MusicBrainz id (string); movies/TV are
+    // identified by tmdbId (number) disambiguated by mediaType.
     const whereClause =
-      typeof id === 'number'
-        ? { tmdbId: id, requestedBy: { id: user.id } }
-        : { mbId: id, requestedBy: { id: user.id } };
+      typeof id === 'string'
+        ? { mbId: id, mediaType, requestedBy: { id: user.id } }
+        : { tmdbId: id, mediaType, requestedBy: { id: user.id } };
 
     const watchlist = await watchlistRepository.findOneBy(whereClause);
 

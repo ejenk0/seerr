@@ -1,4 +1,5 @@
 import Button from '@app/components/Common/Button';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { CheckIcon, TrashIcon } from '@heroicons/react/24/solid';
@@ -32,9 +33,28 @@ const ErrorCard = ({
   canExpand,
 }: ErrorCardProps) => {
   const intl = useIntl();
+  const { addToast } = useToasts();
 
   const deleteMedia = async () => {
-    await axios.delete(`/api/v1/media/${id}`);
+    try {
+      await axios.delete(`/api/v1/watchlist/${tmdbId}?mediaType=${type}`);
+    } catch (e) {
+      if (!axios.isAxiosError(e) || e.response?.status !== 404) {
+        addToast(intl.formatMessage(globalMessages.error), {
+          appearance: 'error',
+          autoDismiss: true,
+        });
+        return;
+      }
+    }
+    await axios.delete(`/api/v1/media/${id}`).catch((e) => {
+      if (axios.isAxiosError(e) && e.response?.status === 404) return;
+      addToast(intl.formatMessage(globalMessages.error), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+    });
+    mutate('/api/v1/discover/watchlist');
     mutate('/api/v1/media?filter=allavailable&take=20&sort=mediaAdded');
     mutate('/api/v1/request?filter=all&take=10&sort=modified&skip=0');
   };
@@ -45,7 +65,7 @@ const ErrorCard = ({
       data-testid="title-card"
     >
       <div
-        className="relative transform-gpu cursor-default overflow-hidden rounded-xl bg-gray-800 bg-cover shadow outline-none ring-1 ring-gray-700  transition duration-300"
+        className="relative transform-gpu cursor-default overflow-hidden rounded-xl bg-gray-800 bg-cover shadow outline-none ring-1 ring-gray-700 transition duration-300"
         style={{
           paddingBottom: '150%',
         }}

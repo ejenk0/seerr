@@ -330,8 +330,8 @@ class PlexScanner
 
     const seasons = tvShow.seasons;
     const processableSeasons: ProcessableSeason[] = [];
-    const settings = getSettings();
 
+    const settings = getSettings();
     const filteredSeasons = settings.main.enableSpecialEpisodes
       ? seasons
       : seasons.filter((sn) => sn.season_number !== 0);
@@ -376,18 +376,16 @@ class PlexScanner
       }
     }
 
-    if (mediaIds.tvdbId) {
-      await this.processShow(
-        mediaIds.tmdbId,
-        mediaIds.tvdbId ?? tvShow.external_ids.tvdb_id,
-        processableSeasons,
-        {
-          mediaAddedAt: new Date(metadata.addedAt * 1000),
-          ratingKey: ratingKey,
-          title: metadata.title,
-        }
-      );
-    }
+    await this.processShow(
+      mediaIds.tmdbId,
+      mediaIds.tvdbId ?? tvShow.external_ids.tvdb_id,
+      processableSeasons,
+      {
+        mediaAddedAt: new Date(metadata.addedAt * 1000),
+        ratingKey: ratingKey,
+        title: metadata.title,
+      }
+    );
   }
 
   private async processPlexMusic(plexitem: PlexLibraryItem) {
@@ -493,6 +491,13 @@ class PlexScanner
           imdbId: mediaIds.imdbId,
         });
         mediaIds.tmdbId = tmdbMedia.id;
+      }
+
+      if (mediaIds.tvdbId && !mediaIds.tmdbId) {
+        const show = await this.tmdb.getShowByTvdbId({
+          tvdbId: mediaIds.tvdbId,
+        });
+        mediaIds.tmdbId = show.id;
       }
 
       // Cache GUIDs

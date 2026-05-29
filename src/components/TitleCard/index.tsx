@@ -1,5 +1,5 @@
 import Spinner from '@app/assets/spinner.svg';
-import BlacklistModal from '@app/components/BlacklistModal';
+import BlocklistModal from '@app/components/BlocklistModal';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import StatusBadgeMini from '@app/components/Common/StatusBadgeMini';
@@ -9,6 +9,7 @@ import ErrorCard from '@app/components/TitleCard/ErrorCard';
 import Placeholder from '@app/components/TitleCard/Placeholder';
 import { useIsTouch } from '@app/hooks/useIsTouch';
 import { useProgressiveCovers } from '@app/hooks/useProgressiveCovers';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -28,7 +29,6 @@ import axios from 'axios';
 import Link from 'next/link';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import { mutate } from 'swr';
 
 interface TitleCardProps {
@@ -83,10 +83,9 @@ const TitleCard = ({
   const [showDetail, setShowDetail] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const { addToast } = useToasts();
-  const [toggleWatchlist, setToggleWatchlist] = useState<boolean>(
-    !isAddedToWatchlist
-  );
-  const [showBlacklistModal, setShowBlacklistModal] = useState(false);
+  const [toggleWatchlist, setToggleWatchlist] =
+    useState<boolean>(!isAddedToWatchlist);
+  const [showBlocklistModal, setShowBlocklistModal] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   const enhancedItem = useProgressiveCovers([
@@ -117,8 +116,8 @@ const TitleCard = ({
     []
   );
 
-  const closeBlacklistModal = useCallback(
-    () => setShowBlacklistModal(false),
+  const closeBlocklistModal = useCallback(
+    () => setShowBlocklistModal(false),
     []
   );
 
@@ -147,7 +146,7 @@ const TitleCard = ({
           { appearance: 'success', autoDismiss: true }
         );
       }
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.watchlistError), {
         appearance: 'error',
         autoDismiss: true,
@@ -161,7 +160,9 @@ const TitleCard = ({
   const onClickDeleteWatchlistBtn = async (): Promise<void> => {
     setIsUpdating(true);
     try {
-      const response = await axios.delete<Watchlist>('/api/v1/watchlist/' + id);
+      const response = await axios.delete<Watchlist>(
+        `/api/v1/watchlist/${id}?mediaType=${mediaType}`
+      );
 
       if (response.status === 204) {
         addToast(
@@ -174,7 +175,7 @@ const TitleCard = ({
           { appearance: 'info', autoDismiss: true }
         );
       }
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.watchlistError), {
         appearance: 'error',
         autoDismiss: true,
@@ -195,27 +196,34 @@ const TitleCard = ({
 
     if (topNode) {
       try {
-        await axios.post('/api/v1/blacklist', {
-          ...(mediaType === 'album' ? { mbId: id } : { tmdbId: id }),
-          mediaType: mediaType === 'album' ? 'music' : mediaType,
-          title,
-          user: user?.id,
-        });
+        if (mediaType === 'collection') {
+          await axios.post(`/api/v1/blocklist/collection/${id}`);
+        } else {
+          await axios.post('/api/v1/blocklist', {
+            ...(mediaType === 'album' ? { mbId: id } : { tmdbId: id }),
+            mediaType: mediaType === 'album' ? 'music' : mediaType,
+            title,
+            user: user?.id,
+          });
+        }
         addToast(
           <span>
-            {intl.formatMessage(globalMessages.blacklistSuccess, {
+            {intl.formatMessage(globalMessages.blocklistSuccess, {
               title,
               strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
             })}
           </span>,
           { appearance: 'success', autoDismiss: true }
         );
-        setCurrentStatus(MediaStatus.BLACKLISTED);
+        setCurrentStatus(MediaStatus.BLOCKLISTED);
+        if (mutateParent) {
+          mutateParent();
+        }
       } catch (e) {
         if (e?.response?.status === 412) {
           addToast(
             <span>
-              {intl.formatMessage(globalMessages.blacklistDuplicateError, {
+              {intl.formatMessage(globalMessages.blocklistDuplicateError, {
                 title,
                 strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
               })}
@@ -223,7 +231,7 @@ const TitleCard = ({
             { appearance: 'info', autoDismiss: true }
           );
         } else {
-          addToast(intl.formatMessage(globalMessages.blacklistError), {
+          addToast(intl.formatMessage(globalMessages.blocklistError), {
             appearance: 'error',
             autoDismiss: true,
           });
@@ -231,41 +239,78 @@ const TitleCard = ({
       }
 
       setIsUpdating(false);
-      closeBlacklistModal();
+      closeBlocklistModal();
     } else {
-      addToast(intl.formatMessage(globalMessages.blacklistError), {
+      addToast(intl.formatMessage(globalMessages.blocklistError), {
         appearance: 'error',
         autoDismiss: true,
       });
     }
   };
 
-  const onClickShowBlacklistBtn = async (): Promise<void> => {
+  const onClickShowBlocklistBtn = async (): Promise<void> => {
     setIsUpdating(true);
     const topNode = cardRef.current;
 
     if (topNode) {
-      const res = await axios.delete('/api/v1/blacklist/' + id);
+      try {
+        if (mediaType === 'collection') {
+          const res = await axios.delete(`/api/v1/blocklist/collection/${id}`);
 
-      if (res.status === 204) {
-        addToast(
-          <span>
-            {intl.formatMessage(globalMessages.removeFromBlacklistSuccess, {
-              title,
-              strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
-            })}
-          </span>,
-          { appearance: 'success', autoDismiss: true }
-        );
-        setCurrentStatus(MediaStatus.UNKNOWN);
-      } else {
-        addToast(intl.formatMessage(globalMessages.blacklistError), {
+          if (res.status === 204) {
+            addToast(
+              <span>
+                {intl.formatMessage(globalMessages.removeFromBlocklistSuccess, {
+                  title,
+                  strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
+                })}
+              </span>,
+              { appearance: 'success', autoDismiss: true }
+            );
+            setCurrentStatus(MediaStatus.UNKNOWN);
+            if (mutateParent) {
+              mutateParent();
+            }
+          } else {
+            addToast(intl.formatMessage(globalMessages.blocklistError), {
+              appearance: 'error',
+              autoDismiss: true,
+            });
+          }
+        } else {
+          const res = await axios.delete(
+            `/api/v1/blocklist/${id}?mediaType=${mediaType}`
+          );
+
+          if (res.status === 204) {
+            addToast(
+              <span>
+                {intl.formatMessage(globalMessages.removeFromBlocklistSuccess, {
+                  title,
+                  strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
+                })}
+              </span>,
+              { appearance: 'success', autoDismiss: true }
+            );
+            setCurrentStatus(MediaStatus.UNKNOWN);
+            if (mutateParent) {
+              mutateParent();
+            }
+          } else {
+            addToast(intl.formatMessage(globalMessages.blocklistError), {
+              appearance: 'error',
+              autoDismiss: true,
+            });
+          }
+        }
+      } catch {
+        addToast(intl.formatMessage(globalMessages.blocklistError), {
           appearance: 'error',
           autoDismiss: true,
         });
       }
     } else {
-      addToast(intl.formatMessage(globalMessages.blacklistError), {
+      addToast(intl.formatMessage(globalMessages.blocklistError), {
         appearance: 'error',
         autoDismiss: true,
       });
@@ -290,7 +335,7 @@ const TitleCard = ({
     { type: 'or' }
   );
 
-  const showHideButton = hasPermission([Permission.MANAGE_BLACKLIST], {
+  const showHideButton = hasPermission([Permission.MANAGE_BLOCKLIST], {
     type: 'or',
   });
 
@@ -317,7 +362,7 @@ const TitleCard = ({
         onUpdating={requestUpdating}
         onCancel={closeModal}
       />
-      <BlacklistModal
+      <BlocklistModal
         tmdbId={typeof id === 'number' ? id : undefined}
         mbId={typeof id === 'string' ? id : undefined}
         type={
@@ -329,8 +374,8 @@ const TitleCard = ({
             ? 'tv'
             : 'music'
         }
-        show={showBlacklistModal}
-        onCancel={closeBlacklistModal}
+        show={showBlocklistModal}
+        onCancel={closeBlocklistModal}
         onComplete={onClickHideItemBtn}
         isUpdating={isUpdating}
       />
@@ -418,12 +463,12 @@ const TitleCard = ({
           )}
           <div className="absolute left-0 right-0 flex items-center justify-between p-2">
             <div
-              className={`pointer-events-none z-40 self-start rounded-full border bg-opacity-80 shadow-md ${
+              className={`pointer-events-none z-40 self-start rounded-full border shadow-md ${
                 mediaType === 'album'
-                  ? 'border-green-500 bg-green-600'
+                  ? 'border-green-500 bg-green-600/80'
                   : mediaType === 'movie' || mediaType === 'collection'
-                  ? 'border-blue-500 bg-blue-600'
-                  : 'border-purple-600 bg-purple-600'
+                  ? 'border-blue-500 bg-blue-600/80'
+                  : 'border-purple-600 bg-purple-600/80'
               }`}
             >
               <div className="flex h-4 items-center px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
@@ -436,7 +481,7 @@ const TitleCard = ({
                   : intl.formatMessage(globalMessages.tvshow)}
               </div>
             </div>
-            {showDetail && currentStatus !== MediaStatus.BLACKLISTED && (
+            {showDetail && currentStatus !== MediaStatus.BLOCKLISTED && (
               <div className="flex flex-col gap-1">
                 {user?.userType !== UserType.PLEX &&
                   (toggleWatchlist ? (
@@ -466,7 +511,7 @@ const TitleCard = ({
                       buttonType={'ghost'}
                       className="z-40"
                       buttonSize={'sm'}
-                      onClick={() => setShowBlacklistModal(true)}
+                      onClick={() => setShowBlocklistModal(true)}
                     >
                       <EyeSlashIcon className={'h-3'} />
                     </Button>
@@ -475,17 +520,17 @@ const TitleCard = ({
             )}
             {showDetail &&
               showHideButton &&
-              currentStatus == MediaStatus.BLACKLISTED && (
+              currentStatus == MediaStatus.BLOCKLISTED && (
                 <Tooltip
                   content={intl.formatMessage(
-                    globalMessages.removefromBlacklist
+                    globalMessages.removefromBlocklist
                   )}
                 >
                   <Button
                     buttonType={'ghost'}
                     className="z-40"
                     buttonSize={'sm'}
-                    onClick={() => onClickShowBlacklistBtn()}
+                    onClick={() => onClickShowBlocklistBtn()}
                   >
                     <EyeIcon className={'h-3'} />
                   </Button>
@@ -513,7 +558,7 @@ const TitleCard = ({
             leaveFrom="opacity-100"
             leaveTo="opacity-0"
           >
-            <div className="absolute inset-0 z-40 flex items-center justify-center rounded-xl bg-gray-800 bg-opacity-75 text-white">
+            <div className="absolute inset-0 z-40 flex items-center justify-center rounded-xl bg-gray-800/75 text-white">
               <Spinner className="h-10 w-10" />
             </div>
           </Transition>
@@ -540,8 +585,8 @@ const TitleCard = ({
                     : mediaType === 'movie'
                     ? `/movie/${id}`
                     : mediaType === 'collection'
-                    ? `/collection/${id}`
-                    : `/tv/${id}`
+                      ? `/collection/${id}`
+                      : `/tv/${id}`
                 }
                 className="absolute inset-0 h-full w-full cursor-pointer overflow-hidden text-left"
                 style={{

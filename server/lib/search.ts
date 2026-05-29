@@ -77,12 +77,11 @@ searchProviders.push({
 
     const successfulResponses = responses.filter(
       (r) => r.status === 'fulfilled'
-    ) as
-      | (
-          | PromiseFulfilledResult<TmdbMovieDetails>
-          | PromiseFulfilledResult<TmdbTvDetails>
-          | PromiseFulfilledResult<TmdbPersonDetails>
-        )[];
+    ) as (
+      | PromiseFulfilledResult<TmdbMovieDetails>
+      | PromiseFulfilledResult<TmdbTvDetails>
+      | PromiseFulfilledResult<TmdbPersonDetails>
+    )[];
 
     const results: (TmdbMovieResult | TmdbTvResult | TmdbPersonResult)[] = [];
 
@@ -203,11 +202,10 @@ searchProviders.push({
 
     const successfulResponses = responses.filter(
       (r) => r.status === 'fulfilled'
-    ) as
-      | (
-          | PromiseFulfilledResult<TmdbSearchMovieResponse>
-          | PromiseFulfilledResult<TmdbSearchTvResponse>
-        )[];
+    ) as (
+      | PromiseFulfilledResult<TmdbSearchMovieResponse>
+      | PromiseFulfilledResult<TmdbSearchTvResponse>
+    )[];
 
     const results: (TmdbMovieResult | TmdbTvResult)[] = [];
 

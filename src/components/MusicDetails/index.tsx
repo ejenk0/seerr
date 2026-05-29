@@ -1,6 +1,6 @@
 import Ellipsis from '@app/assets/ellipsis.svg';
 import Spinner from '@app/assets/spinner.svg';
-import BlacklistModal from '@app/components/BlacklistModal';
+import BlocklistModal from '@app/components/BlocklistModal';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
@@ -39,7 +39,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
+import useToasts from '@app/hooks/useToasts';
 import TruncateMarkup from 'react-truncate-markup';
 import useSWR from 'swr';
 
@@ -129,9 +129,9 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
   const [toggleWatchlist, setToggleWatchlist] = useState<boolean>(
     !music?.onUserWatchlist
   );
-  const [isBlacklistUpdating, setIsBlacklistUpdating] =
+  const [isBlocklistUpdating, setIsBlocklistUpdating] =
     useState<boolean>(false);
-  const [showBlacklistModal, setShowBlacklistModal] = useState(false);
+  const [showBlocklistModal, setShowBlocklistModal] = useState(false);
   const { addToast } = useToasts();
   const [showBio, setShowBio] = useState(false);
 
@@ -158,8 +158,8 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
     setShowManager(router.query.manage == '1' ? true : false);
   }, [router.query.manage]);
 
-  const closeBlacklistModal = useCallback(
-    () => setShowBlacklistModal(false),
+  const closeBlocklistModal = useCallback(
+    () => setShowBlocklistModal(false),
     []
   );
 
@@ -265,10 +265,10 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
   };
 
   const onClickHideItemBtn = async (): Promise<void> => {
-    setIsBlacklistUpdating(true);
+    setIsBlocklistUpdating(true);
 
     try {
-      const response = await axios.post('/api/v1/blacklist', {
+      const response = await axios.post('/api/v1/blocklist', {
         mbId: music?.id,
         mediaType: 'music',
         title: music?.title,
@@ -278,7 +278,7 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
       if (response.status === 201) {
         addToast(
           <span>
-            {intl.formatMessage(globalMessages.blacklistSuccess, {
+            {intl.formatMessage(globalMessages.blocklistSuccess, {
               title: music?.title,
               strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
             })}
@@ -290,7 +290,7 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
       } else if (response.status === 412) {
         addToast(
           <span>
-            {intl.formatMessage(globalMessages.blacklistDuplicateError, {
+            {intl.formatMessage(globalMessages.blocklistDuplicateError, {
               title: music?.title,
               strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
             })}
@@ -299,17 +299,17 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
         );
       }
     } catch (error) {
-      addToast(intl.formatMessage(globalMessages.blacklistError), {
+      addToast(intl.formatMessage(globalMessages.blocklistError), {
         appearance: 'error',
         autoDismiss: true,
       });
     } finally {
-      setIsBlacklistUpdating(false);
-      closeBlacklistModal();
+      setIsBlocklistUpdating(false);
+      closeBlocklistModal();
     }
   };
 
-  const showHideButton = hasPermission([Permission.MANAGE_BLACKLIST], {
+  const showHideButton = hasPermission([Permission.MANAGE_BLOCKLIST], {
     type: 'or',
   });
 
@@ -398,13 +398,13 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
         revalidate={() => revalidate()}
         show={showManager}
       />
-      <BlacklistModal
+      <BlocklistModal
         mbId={data.mbId}
         type="music"
-        show={showBlacklistModal}
-        onCancel={closeBlacklistModal}
+        show={showBlocklistModal}
+        onCancel={closeBlocklistModal}
         onComplete={onClickHideItemBtn}
-        isUpdating={isBlacklistUpdating}
+        isUpdating={isBlocklistUpdating}
       />
       <div className="media-header">
         <div className="media-poster">
@@ -475,21 +475,21 @@ const MusicDetails = ({ music }: MusicDetailsProps) => {
             data?.mediaInfo?.status !== MediaStatus.PROCESSING &&
             data?.mediaInfo?.status !== MediaStatus.AVAILABLE &&
             data?.mediaInfo?.status !== MediaStatus.PENDING &&
-            data?.mediaInfo?.status !== MediaStatus.BLACKLISTED && (
+            data?.mediaInfo?.status !== MediaStatus.BLOCKLISTED && (
               <Tooltip
-                content={intl.formatMessage(globalMessages.addToBlacklist)}
+                content={intl.formatMessage(globalMessages.addToBlocklist)}
               >
                 <Button
                   buttonType="ghost"
                   className="z-40 mr-2"
                   buttonSize="md"
-                  onClick={() => setShowBlacklistModal(true)}
+                  onClick={() => setShowBlocklistModal(true)}
                 >
                   <EyeSlashIcon />
                 </Button>
               </Tooltip>
             )}
-          {data?.mediaInfo?.status !== MediaStatus.BLACKLISTED && (
+          {data?.mediaInfo?.status !== MediaStatus.BLOCKLISTED && (
             <>
               {toggleWatchlist ? (
                 <Tooltip content={intl.formatMessage(messages.addtowatchlist)}>

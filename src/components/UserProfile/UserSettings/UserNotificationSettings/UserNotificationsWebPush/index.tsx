@@ -6,6 +6,7 @@ import NotificationTypeSelector, {
 } from '@app/components/NotificationTypeSelector';
 import DeviceItem from '@app/components/UserProfile/UserSettings/UserNotificationSettings/UserNotificationsWebPush/DeviceItem';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -26,7 +27,6 @@ import { Form, Formik } from 'formik';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages(
@@ -95,7 +95,7 @@ const UserWebPushSettings = () => {
       } else {
         throw new Error('Subscription failed');
       }
-    } catch (error) {
+    } catch {
       addToast(intl.formatMessage(messages.enablingwebpusherror), {
         appearance: 'error',
         autoDismiss: true,
@@ -109,20 +109,33 @@ const UserWebPushSettings = () => {
   // Deletes/disables corresponding push subscription from database
   const disablePushNotifications = async (endpoint?: string) => {
     try {
-      await unsubscribeToPushNotifications(user?.id, endpoint);
-
-      // Delete from backend if endpoint is available
-      if (subEndpoint) {
-        await deletePushSubscriptionFromBackend(subEndpoint);
-      }
+      const unsubscribedEndpoint = await unsubscribeToPushNotifications(
+        user?.id,
+        endpoint
+      );
 
       localStorage.setItem('pushNotificationsEnabled', 'false');
       setWebPushEnabled(false);
+
+      // Only delete the current browser's subscription, not all devices
+      const endpointToDelete = unsubscribedEndpoint || subEndpoint || endpoint;
+      if (endpointToDelete) {
+        try {
+          await axios.delete(
+            `/api/v1/user/${user?.id}/pushSubscription/${encodeURIComponent(
+              endpointToDelete
+            )}`
+          );
+        } catch {
+          // Ignore deletion failures - backend cleanup is best effort
+        }
+      }
+
       addToast(intl.formatMessage(messages.webpushhasbeendisabled), {
         autoDismiss: true,
         appearance: 'success',
       });
-    } catch (error) {
+    } catch {
       addToast(intl.formatMessage(messages.disablingwebpusherror), {
         autoDismiss: true,
         appearance: 'error',
@@ -144,7 +157,7 @@ const UserWebPushSettings = () => {
         autoDismiss: true,
         appearance: 'success',
       });
-    } catch (error) {
+    } catch {
       addToast(intl.formatMessage(messages.subscriptiondeleteerror), {
         autoDismiss: true,
         appearance: 'error',
@@ -157,13 +170,39 @@ const UserWebPushSettings = () => {
   useEffect(() => {
     const verifyWebPush = async () => {
       const enabled = await verifyPushSubscription(user?.id, currentSettings);
-      setWebPushEnabled(enabled);
+      let isEnabled = enabled;
+
+      if (!enabled && 'serviceWorker' in navigator) {
+        const { subscription } = await getPushSubscription();
+        if (subscription) {
+          isEnabled = true;
+        }
+      }
+
+      if (!isEnabled && dataDevices && dataDevices.length > 0) {
+        const currentUserAgent = navigator.userAgent;
+        const hasMatchingDevice = dataDevices.some(
+          (device) => device.userAgent === currentUserAgent
+        );
+
+        if (hasMatchingDevice) {
+          isEnabled = true;
+        }
+      }
+
+      setWebPushEnabled(isEnabled);
+      if (localStorage.getItem('pushNotificationsEnabled') === null) {
+        localStorage.setItem(
+          'pushNotificationsEnabled',
+          isEnabled ? 'true' : 'false'
+        );
+      }
     };
 
     if (user?.id) {
       verifyWebPush();
     }
-  }, [user?.id, currentSettings]);
+  }, [user?.id, currentSettings, dataDevices]);
 
   useEffect(() => {
     const getSubscriptionEndpoint = async () => {
@@ -233,7 +272,7 @@ const UserWebPushSettings = () => {
               appearance: 'success',
               autoDismiss: true,
             });
-          } catch (e) {
+          } catch {
             addToast(intl.formatMessage(messages.webpushsettingsfailed), {
               appearance: 'error',
               autoDismiss: true,
@@ -311,7 +350,7 @@ const UserWebPushSettings = () => {
           );
         }}
       </Formik>
-      <div className="mt-10 mb-6">
+      <div className="mb-6 mt-10">
         <h3 className="heading">
           {intl.formatMessage(messages.managedevices)}
         </h3>

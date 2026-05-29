@@ -1,10 +1,8 @@
 import Button from '@app/components/Common/Button';
 import Modal from '@app/components/Common/Modal';
-import {
-  getIssueOptionsForMediaType,
-  issueOptions,
-} from '@app/components/IssueModal/constants';
+import { getIssueOptionsForMediaType } from '@app/components/IssueModal/constants';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -19,7 +17,6 @@ import axios from 'axios';
 import { Field, Formik } from 'formik';
 import Link from 'next/link';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 import * as Yup from 'yup';
 
@@ -163,7 +160,7 @@ const CreateIssueModal = ({
           if (onCancel) {
             onCancel();
           }
-        } catch (e) {
+        } catch {
           addToast(intl.formatMessage(messages.toastFailedCreate), {
             appearance: 'error',
             autoDismiss: true,
@@ -286,7 +283,7 @@ const CreateIssueModal = ({
               <RadioGroup.Label className="sr-only">
                 Select an Issue
               </RadioGroup.Label>
-              <div className="-space-y-px overflow-hidden rounded-md bg-gray-800 bg-opacity-30">
+              <div className="-space-y-px overflow-hidden rounded-md bg-gray-800/30">
                 {availableIssueOptions.map((setting, index) => (
                   <RadioGroup.Option
                     key={`issue-type-${setting.issueType}`}
@@ -294,11 +291,11 @@ const CreateIssueModal = ({
                     className={({ checked }) =>
                       classNames(
                         index === 0 ? 'rounded-tl-md rounded-tr-md' : '',
-                        index === issueOptions.length - 1
+                        index === availableIssueOptions.length - 1
                           ? 'rounded-bl-md rounded-br-md'
                           : '',
                         checked
-                          ? 'z-10 border border-indigo-500 bg-indigo-400 bg-opacity-20'
+                          ? 'z-10 border border-indigo-500 bg-indigo-400/20'
                           : 'border-gray-500',
                         'relative flex cursor-pointer border p-4 focus:outline-none'
                       )

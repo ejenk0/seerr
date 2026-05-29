@@ -5,6 +5,7 @@ import PageTitle from '@app/components/Common/PageTitle';
 import MetadataSelector, {
   MetadataProviderType,
 } from '@app/components/MetadataSelector';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
@@ -12,7 +13,6 @@ import axios from 'axios';
 import { Form, Formik } from 'formik';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 
 const messages = defineMessages('components.Settings', {
@@ -134,7 +134,7 @@ const SettingsMetadata = () => {
       }
 
       // In case of error without usable data
-      throw new Error('Failed to test connection');
+      throw new Error('Failed to test connection', { cause: error });
     }
   };
 
@@ -203,7 +203,7 @@ const SettingsMetadata = () => {
         }
       }
 
-      throw new Error('Failed to save Metadata settings');
+      throw new Error('Failed to save Metadata settings', { cause: error });
     }
   };
 
@@ -320,12 +320,14 @@ const SettingsMetadata = () => {
 
               addToast(intl.formatMessage(messages.metadataSettingsSaved), {
                 appearance: 'success',
+                autoDismiss: true,
               });
-            } catch (e) {
+            } catch {
               addToast(
                 intl.formatMessage(messages.failedToSaveMetadataSettings),
                 {
                   appearance: 'error',
+                  autoDismiss: true,
                 }
               );
             }
@@ -422,10 +424,11 @@ const SettingsMetadata = () => {
                                 ),
                                 {
                                   appearance: 'success',
+                                  autoDismiss: true,
                                 }
                               );
                             }
-                          } catch (e) {
+                          } catch {
                             addToast(
                               intl.formatMessage(messages.connectionTestFailed),
                               {

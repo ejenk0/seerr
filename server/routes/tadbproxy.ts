@@ -3,33 +3,6 @@ import logger from '@server/logger';
 import { Router } from 'express';
 
 const router = Router();
-
-// Delay the initialization of ImageProxy instances until the proxy (if any) is properly configured
-let _tmdbImageProxy: ImageProxy;
-function initTmdbImageProxy() {
-  if (!_tmdbImageProxy) {
-    _tmdbImageProxy = new ImageProxy('tmdb', 'https://image.tmdb.org', {
-      rateLimitOptions: {
-        maxRequests: 20,
-        maxRPS: 50,
-      },
-    });
-  }
-  return _tmdbImageProxy;
-}
-let _tvdbImageProxy: ImageProxy;
-function initTvdbImageProxy() {
-  if (!_tvdbImageProxy) {
-    _tvdbImageProxy = new ImageProxy('tvdb', 'https://artworks.thetvdb.com', {
-      rateLimitOptions: {
-        maxRequests: 20,
-        maxRPS: 50,
-      },
-    });
-  }
-  return _tvdbImageProxy;
-}
-
 const tadbImageProxy = new ImageProxy('tadb', 'https://r2.theaudiodb.com', {
   rateLimitOptions: {
     maxRequests: 20,
@@ -37,24 +10,21 @@ const tadbImageProxy = new ImageProxy('tadb', 'https://r2.theaudiodb.com', {
   },
 });
 
-router.get('/:type/*', async (req, res) => {
-  const imagePath = req.path.replace(/^\/\w+/, '');
+/**
+ * Image Proxy
+ */
+router.get<{
+  path: string[];
+}>('/*path', async (req, res) => {
+  const imagePath = '/' + req.params.path.join('/');
+
+  if (imagePath.startsWith('//') || imagePath.includes('://')) {
+    logger.error('Invalid URL for image proxy', { imagePath });
+    return res.status(403).send('Invalid URL for image proxy');
+  }
+
   try {
-    let imageData;
-    if (req.params.type === 'tmdb') {
-      imageData = await initTmdbImageProxy().getImage(imagePath);
-    } else if (req.params.type === 'tvdb') {
-      imageData = await initTvdbImageProxy().getImage(imagePath);
-    } else if (req.params.type === 'tabd') {
-      imageData = await tadbImageProxy.getImage(imagePath);
-    } else {
-      logger.error('Unsupported image type', {
-        imagePath,
-        type: req.params.type,
-      });
-      res.status(400).send('Unsupported image type');
-      return;
-    }
+    const imageData = await tadbImageProxy.getImage(imagePath);
 
     res.writeHead(200, {
       'Content-Type': `image/${imageData.meta.extension}`,

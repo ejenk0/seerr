@@ -109,10 +109,11 @@ export interface JellyfinMediaSource {
 export interface JellyfinLibraryItemExtended extends JellyfinLibraryItem {
   ProviderIds: {
     Tmdb?: string;
+    TheMovieDb?: string;
     Imdb?: string;
     Tvdb?: string;
     AniDB?: string;
-    MusicBrainzReleaseGroup: string | undefined;
+    MusicBrainzReleaseGroup?: string;
     MusicBrainzAlbum?: string;
     MusicBrainzArtistId?: string;
   };
@@ -148,11 +149,14 @@ class JellyfinAPI extends ExternalAPI {
         ? deviceId
         : Buffer.from('BOT_seerr').toString('base64');
 
-    let authHeaderVal: string;
+    const version =
+      settings.main.mediaServerType === MediaServerType.EMBY
+        ? '1.0.0'
+        : getAppVersion();
+
+    let authHeaderVal = `MediaBrowser Client="Seerr", Device="Seerr", DeviceId="${safeDeviceId}", Version="${version}"`;
     if (authToken) {
-      authHeaderVal = `MediaBrowser Client="Seerr", Device="Seerr", DeviceId="${safeDeviceId}", Version="${getAppVersion()}", Token="${authToken}"`;
-    } else {
-      authHeaderVal = `MediaBrowser Client="Seerr", Device="Seerr", DeviceId="${safeDeviceId}", Version="${getAppVersion()}"`;
+      authHeaderVal += `, Token="${authToken}"`;
     }
 
     super(
@@ -295,7 +299,7 @@ class JellyfinAPI extends ExternalAPI {
       const mediaFolderResponse = await this.get<any>(`/Library/MediaFolders`);
 
       return this.mapLibraries(mediaFolderResponse.Items);
-    } catch (mediaFoldersResponseError) {
+    } catch {
       // fallback to user views to get libraries
       // this only and maybe/depending on factors affects LDAP users
       try {
@@ -430,7 +434,7 @@ class JellyfinAPI extends ExternalAPI {
   }
 
   public async getEpisodes<
-    T extends { includeMediaInfo?: boolean } | undefined = undefined
+    T extends { includeMediaInfo?: boolean } | undefined = undefined,
   >(
     seriesID: string,
     seasonID: string,
