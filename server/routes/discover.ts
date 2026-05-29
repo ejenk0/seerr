@@ -933,6 +933,7 @@ discoverRoutes.get('/music', async (req, res, next) => {
     const pageSize = 20;
     const sortBy = (req.query.sortBy as string) || 'release_date.desc';
     const days = Number(req.query.days) || 30;
+    const releaseTypeFilter = req.query.releaseType as string | undefined;
     const genreFilter = req.query.genre as string | undefined;
     const showOnlyWithCovers = req.query.onlyWithCoverArt === 'true';
     const releaseDateGte = req.query.releaseDateGte as string | undefined;
@@ -954,23 +955,39 @@ discoverRoutes.get('/music', async (req, res, next) => {
 
     let filteredReleases = freshReleasesData.payload.releases;
 
-    if (genreFilter) {
-      const genres = genreFilter.split(',');
-      filteredReleases = freshReleasesData.payload.releases.filter(
-        (release) => {
-          let releaseType;
+    if (releaseTypeFilter) {
+      const releaseTypes = releaseTypeFilter.split(',').filter(Boolean);
 
-          if (release.release_group_secondary_type) {
-            releaseType = release.release_group_secondary_type;
-          } else if (release.release_tags && release.release_tags.length > 0) {
-            releaseType = release.release_tags[0];
-          } else {
-            releaseType = release.release_group_primary_type || 'Album';
+      if (releaseTypes.length > 0) {
+        filteredReleases = filteredReleases.filter((release) => {
+          const secondaryType = release.release_group_secondary_type;
+          const primaryType = release.release_group_primary_type || 'Album';
+
+          return (
+            (secondaryType && releaseTypes.includes(secondaryType)) ||
+            releaseTypes.includes(primaryType)
+          );
+        });
+      }
+    }
+
+    if (genreFilter) {
+      const genres = genreFilter
+        .split(',')
+        .map((genre) => genre.trim().toLowerCase())
+        .filter(Boolean);
+
+      if (genres.length > 0) {
+        filteredReleases = filteredReleases.filter((release) => {
+          if (!release.release_tags || release.release_tags.length === 0) {
+            return false;
           }
 
-          return genres.includes(releaseType);
-        }
-      );
+          return release.release_tags.some((tag) =>
+            genres.includes(tag.toLowerCase())
+          );
+        });
+      }
     }
 
     if (releaseDateGte || releaseDateLte) {
@@ -1077,6 +1094,7 @@ discoverRoutes.get('/music', async (req, res, next) => {
           mediaType: 'album',
           'primary-type': release.release_group_primary_type || 'Album',
           secondaryType,
+          releaseTags: release.release_tags ?? [],
           title: release.release_name,
           'artist-credit': [{ name: release.artist_credit_name }],
           releaseDate: release.release_date,
@@ -1112,6 +1130,7 @@ discoverRoutes.get('/music', async (req, res, next) => {
           mediaType: 'album',
           'primary-type': release.release_group_primary_type || 'Album',
           secondaryType,
+          releaseTags: release.release_tags ?? [],
           title: release.release_name,
           'artist-credit': [{ name: release.artist_credit_name }],
           releaseDate: release.release_date,
@@ -1134,6 +1153,7 @@ discoverRoutes.get('/music', async (req, res, next) => {
         mediaType: 'album',
         'primary-type': release.release_group_primary_type || 'Album',
         secondaryType,
+        releaseTags: release.release_tags ?? [],
         title: release.release_name,
         'artist-credit': [{ name: release.artist_credit_name }],
         artistId: release.artist_mbids?.[0],

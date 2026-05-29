@@ -25,6 +25,7 @@ import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import type { MultiValue } from 'react-select';
 import AsyncSelect from 'react-select/async';
+import AsyncCreatableSelect from 'react-select/async-creatable';
 
 const messages = defineMessages('components.Discover.FilterSlideover', {
   filters: 'Filters',
@@ -36,6 +37,8 @@ const messages = defineMessages('components.Discover.FilterSlideover', {
   to: 'To',
   studio: 'Studio',
   genres: 'Genres',
+  releaseType: 'Release Type',
+  genre: 'Genre',
   keywords: 'Keywords',
   excludeKeywords: 'Exclude Keywords',
   originalLanguage: 'Original Language',
@@ -69,6 +72,8 @@ const FilterSlideover = ({
   const { currentSettings } = useSettings();
   const updateQueryParams = useUpdateQueryParams({});
   const batchUpdateQueryParams = useBatchUpdateQueryParams({});
+  const [defaultSelectedReleaseTypes, setDefaultSelectedReleaseTypes] =
+    useState<{ label: string; value: string }[] | null>(null);
   const [defaultSelectedGenres, setDefaultSelectedGenres] = useState<
     { label: string; value: string }[] | null
   >(null);
@@ -77,6 +82,21 @@ const FilterSlideover = ({
     type === 'movie' ? 'primaryReleaseDateGte' : 'firstAirDateGte';
   const dateLte =
     type === 'movie' ? 'primaryReleaseDateLte' : 'firstAirDateLte';
+
+  useEffect(() => {
+    if (type === 'music' && currentFilters.releaseType) {
+      const releaseTypes = currentFilters.releaseType.split(',');
+
+      setDefaultSelectedReleaseTypes(
+        releaseTypes.map((releaseType) => ({
+          label: releaseType,
+          value: releaseType,
+        }))
+      );
+    } else {
+      setDefaultSelectedReleaseTypes(null);
+    }
+  }, [type, currentFilters.releaseType]);
 
   useEffect(() => {
     if (type === 'music' && currentFilters.genre) {
@@ -93,7 +113,7 @@ const FilterSlideover = ({
     }
   }, [type, currentFilters.genre]);
 
-  const musicGenreOptions = [
+  const musicReleaseTypeOptions = [
     { label: 'Album', value: 'Album' },
     { label: 'EP', value: 'EP' },
     { label: 'Single', value: 'Single' },
@@ -109,10 +129,52 @@ const FilterSlideover = ({
     { label: 'Other', value: 'Other' },
   ];
 
-  const loadMusicGenreOptions = async (inputValue: string) => {
-    return musicGenreOptions.filter((option) =>
+  const loadMusicReleaseTypeOptions = async (inputValue: string) => {
+    return musicReleaseTypeOptions.filter((option) =>
       option.label.toLowerCase().includes(inputValue.toLowerCase())
     );
+  };
+
+  const loadMusicGenreOptions = async (inputValue: string) => {
+    try {
+      const res = await fetch('/api/v1/discover/music?days=30');
+
+      if (!res.ok) {
+        return [];
+      }
+
+      const data = await res.json();
+      const tags = new Set<string>();
+
+      (data?.results ?? []).forEach(
+        (result: { mediaInfo?: never } & Record<string, unknown>) => {
+          const releaseTags = (result as { releaseTags?: string[] })
+            .releaseTags;
+
+          if (Array.isArray(releaseTags)) {
+            releaseTags.forEach((tag) => {
+              if (tag) {
+                tags.add(tag);
+              }
+            });
+          }
+        }
+      );
+
+      const options = Array.from(tags)
+        .sort((a, b) => a.localeCompare(b))
+        .map((tag) => ({ label: tag, value: tag }));
+
+      if (!inputValue) {
+        return options;
+      }
+
+      return options.filter((option) =>
+        option.label.toLowerCase().includes(inputValue.toLowerCase())
+      );
+    } catch (e) {
+      return [];
+    }
   };
 
   if (type === 'music') {
@@ -195,18 +257,39 @@ const FilterSlideover = ({
 
         <div className="mt-4 flex flex-col space-y-4">
           <span className="text-lg font-semibold">
-            {intl.formatMessage(messages.genres)}
+            {intl.formatMessage(messages.releaseType)}
           </span>
           <AsyncSelect
+            key={`music-release-type-select-${defaultSelectedReleaseTypes}`}
+            className="react-select-container"
+            classNamePrefix="react-select"
+            defaultValue={defaultSelectedReleaseTypes}
+            defaultOptions={musicReleaseTypeOptions}
+            isMulti
+            cacheOptions
+            loadOptions={loadMusicReleaseTypeOptions}
+            placeholder={intl.formatMessage(messages.releaseType)}
+            onChange={(value: MultiValue<{ label: string; value: string }>) => {
+              updateQueryParams(
+                'releaseType',
+                value?.length ? value.map((v) => v.value).join(',') : undefined
+              );
+            }}
+          />
+
+          <span className="text-lg font-semibold">
+            {intl.formatMessage(messages.genre)}
+          </span>
+          <AsyncCreatableSelect
             key={`music-genre-select-${defaultSelectedGenres}`}
             className="react-select-container"
             classNamePrefix="react-select"
             defaultValue={defaultSelectedGenres}
-            defaultOptions={musicGenreOptions}
             isMulti
             cacheOptions
+            defaultOptions
             loadOptions={loadMusicGenreOptions}
-            placeholder={intl.formatMessage(messages.genres)}
+            placeholder={intl.formatMessage(messages.genre)}
             onChange={(value: MultiValue<{ label: string; value: string }>) => {
               updateQueryParams(
                 'genre',

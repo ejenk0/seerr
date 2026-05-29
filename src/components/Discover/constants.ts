@@ -100,6 +100,7 @@ export const QueryFilterOptions = z.object({
   firstAirDateLte: z.string().optional(),
   studio: z.string().optional(),
   genre: z.string().optional(),
+  releaseType: z.string().optional(),
   keywords: z.string().optional(),
   excludeKeywords: z.string().optional(),
   language: z.string().optional(),
@@ -158,6 +159,10 @@ export const prepareFilterValues = (
 
   if (values.genre) {
     filterValues.genre = values.genre;
+  }
+
+  if (values.releaseType) {
+    filterValues.releaseType = values.releaseType;
   }
 
   if (values.status) {

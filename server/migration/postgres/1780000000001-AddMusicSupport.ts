@@ -43,9 +43,17 @@ export class AddMusicSupport1780000000001 implements MigrationInterface {
     );
 
     await queryRunner.query(`ALTER TABLE "override_rule" ADD COLUMN IF NOT EXISTS "lidarrServiceId" integer`);
+
+    // Music media has no tmdbId (keyed on mbId) — relax the NOT NULL constraint.
+    await queryRunner.query(`ALTER TABLE "media" ALTER COLUMN "tmdbId" DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE "watchlist" ALTER COLUMN "tmdbId" DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE "blocklist" ALTER COLUMN "tmdbId" DROP NOT NULL`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`ALTER TABLE "blocklist" ALTER COLUMN "tmdbId" SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE "watchlist" ALTER COLUMN "tmdbId" SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE "media" ALTER COLUMN "tmdbId" SET NOT NULL`);
     await queryRunner.query(`ALTER TABLE "override_rule" DROP COLUMN "lidarrServiceId"`);
     await queryRunner.query(`DROP INDEX "IDX_4f7c7041c1792b568be902f097"`);
     await queryRunner.query(`ALTER TABLE "blocklist" DROP COLUMN "mbId"`);
