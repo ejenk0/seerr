@@ -6562,8 +6562,14 @@ paths:
           name: genre
           schema:
             type: string
+            example: 'ambient,jazz'
+          description: Comma-separated list of music genres (release tags) to filter by
+        - in: query
+          name: releaseType
+          schema:
+            type: string
             example: 'Album,EP,Single'
-          description: Comma-separated list of music genres/types to filter by
+          description: Comma-separated list of release types (primary/secondary type) to filter by
         - in: query
           name: onlyWithCoverArt
           schema:

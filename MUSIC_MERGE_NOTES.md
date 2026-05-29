@@ -107,6 +107,13 @@ Split into two independent filters:
 
 Applied as independent AND `.filter()` passes.
 
+**Spec gap fixed:** seerr validates query params against `seerr-api.yml`
+(express-openapi-validator), which rejects unknown params with HTTP 400. The new
+`releaseType` param had to be registered on the `/discover/music` path (the old
+`genre` param was already there); also corrected `genre`'s description (it's now
+real genres, not types). Found because `?releaseType=EP` returned
+`400 Unknown query parameter 'releaseType'`.
+
 ## 6. Deployment/runtime note — Node Happy Eyeballs timeout (NOT yet in code)
 
 `/discover/music` returned **500** with an `AggregateError` from ListenBrainz
@@ -129,9 +136,12 @@ ship it as a documented compose env var. Recommend the code change for the fork.
 - Client + server `tsc --noEmit` clean after every step.
 - Migration validated against a `.backup` copy of the production v3.2.0 DB:
   applies cleanly, preserves all rows, integrity OK.
-- Image booted against a prod-DB copy: server ready, migrations apply, talks to
-  Lidarr. (Album-request success after the `tmdbId` fix + filter UI: verifying
-  on the current rebuild.)
+- Image booted against a prod-DB copy: server ready, migrations apply,
+  `media.tmdbId` confirmed nullable, all rows preserved.
+- **Album request succeeds end-to-end** (`tmdbId` null, `mbId` set,
+  mediaType=music) and is **sent to Lidarr** — verified on the rebuilt image.
+- **Filters verified** via API: `releaseType=EP` → 1045; `genre=ambient` → 81;
+  combined `releaseType=Album&genre=jazz` → 15 (AND logic works).
 
 ## Open items / known limitations
 
