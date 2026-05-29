@@ -13,7 +13,7 @@ const caaImageProxy = new ImageProxy('caa', 'https://archive.org/download', {
 /**
  * Image Proxy
  */
-router.get('/*', async (req, res) => {
+router.get('/*path', async (req, res) => {
   const imagePath = req.path.replace('/download', '');
   try {
     const imageData = await caaImageProxy.getImage(imagePath);

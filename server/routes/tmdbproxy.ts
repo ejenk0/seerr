@@ -13,7 +13,7 @@ const tmdbImageProxy = new ImageProxy('tmdb', 'https://image.tmdb.org', {
 /**
  * Image Proxy
  */
-router.get('/*', async (req, res) => {
+router.get('/*path', async (req, res) => {
   const imagePath = req.path.replace('/image', '');
   try {
     const imageData = await tmdbImageProxy.getImage(imagePath);
