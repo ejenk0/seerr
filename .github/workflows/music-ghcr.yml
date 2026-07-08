@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - music
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/upstream-sync.yml'
   workflow_dispatch:
 
 permissions:

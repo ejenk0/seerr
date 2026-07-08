@@ -143,9 +143,52 @@ ship it as a documented compose env var. Recommend the code change for the fork.
 - **Filters verified** via API: `releaseType=EP` → 1045; `genre=ambient` → 81;
   combined `releaseType=Album&genre=jazz` → 15 (AND logic works).
 
+## 7. Post-deployment fixes (found in daily use)
+
+- **Lidarr root folder / manual imports.** Config issue (Seerr's Lidarr root
+  folder was `/music`, not Lidarr's real `/data/media/music`), so new artists
+  were placed outside any root folder and downloads parked as "not in a Root
+  Folder". Fixed the Seerr setting; also moved the 3 misplaced artists in Lidarr
+  and manually imported the stuck downloads.
+- **Search / cover-art slowness (measured).** Confirmed MusicBrainz is the
+  search bottleneck: ~1.3s per request + a hard **1 req/s** rate limit, and
+  `/api/v1/search` issues two MB calls (album + artist) that serialize. Image
+  slowness is **not** MusicBrainz — cover art proxies `archive.org/download`,
+  which returns 503s (Internet Archive instability). (Aggressive probing can
+  trip MetaBrainz's abuse block → connection resets; back off.)
+- **Person page conflated musician with same-named actor.** `personMapper`
+  name-searched TMDB and fell back to the most-popular same-named person of any
+  department, linking e.g. singer AURORA to a Korean actress. Replaced with
+  **external-ID verification**: MusicBrainz URL relations → IMDb (or
+  Wikidata→IMDb P345) → TMDB find-by-external-id; map only on a real link. Added
+  `MusicBrainz.getArtistExternalIds`. Cleared the 205 cached mappings to
+  re-derive. Verified: AURORA now maps to TMDB `1682648` (Aurora Aksnes), 0 rows
+  left on the actress.
+
+## 8. Deployment / cutover
+
+- Fork deployed to the homelab via `20-media/compose.yaml`, image pinned to the
+  immutable `ghcr.io/ejenk0/seerr:music-<sha>` tag, with
+  `NODE_OPTIONS=--network-family-autoselection-attempt-timeout=5000` (the Happy
+  Eyeballs fix, shipped as a compose env rather than baked into code).
+- Cutover replaced the stable v3.2.0 instance: the music instance's config was
+  promoted to the canonical path; the old v3.2.0 config kept as a dated on-host
+  backup. Requests unique to the old instance were re-added via the API (TV
+  requests whose seasons are already available cannot be re-created — Seerr
+  rejects "no seasons available").
+
+## 9. Staying current with upstream
+
+- `.github/workflows/upstream-sync.yml`: weekly, merges the latest upstream
+  *release* tag into `music`, typechecks clean merges, and opens a PR (flagged
+  if conflicted). Merging the PR rebuilds the image via `music-ghcr.yml`
+  (which now ignores `**.md` and the sync workflow to avoid needless rebuilds).
+- Deployment digest bumps handled by Renovate under the usual soak windows.
+
 ## Open items / known limitations
 
-- [ ] Decide on the Happy Eyeballs timeout fix (code vs env) — section 6.
+- [x] Happy Eyeballs timeout — shipped as a compose `NODE_OPTIONS` env
+      (section 8). Could still be baked into server startup later.
 - [ ] Genre suggestions are sparse (~10% of fresh releases carry tags); the
       control is creatable so users can still type any genre.
 - [ ] `/discover/music` first load is slow (~14 s) due to serial MusicBrainz/

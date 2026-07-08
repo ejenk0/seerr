@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Upstream sync
+
+# Weekly: merge the latest upstream (seerr-team/seerr) *release* into `music`
+# and open a PR. Releases are used instead of `develop` for stability (less
+# churn, fewer conflicts). Clean merges are typechecked; conflicted merges are
+# pushed with markers and flagged for manual resolution. Merging the PR triggers
+# the image rebuild via music-ghcr.yml.
+
+on:
+  schedule:
+    - cron: '0 17 * * 0' # Mondays 03:00 Australia/Brisbane (Sun 17:00 UTC)
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Upstream ref to merge (default: latest release tag)'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout music
+        uses: actions/checkout@v4
+        with:
+          ref: music
+          fetch-depth: 0
+
+      - name: Configure git + upstream
+        run: |
+          git config user.name 'upstream-sync[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/seerr-team/seerr.git
+          git fetch upstream --tags --prune --quiet
+
+      - name: Determine target ref
+        id: target
+        run: |
+          if [ -n "${{ github.event.inputs.ref }}" ]; then
+            TARGET="${{ github.event.inputs.ref }}"
+          else
+            TARGET="$(git tag -l 'v*' --sort=-v:refname | head -1)"
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$TARGET" HEAD; then
+            echo "uptodate=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::music already contains $TARGET — nothing to sync."
+          else
+            echo "uptodate=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Will merge upstream $TARGET into music."
+          fi
+
+      - name: Merge into sync branch
+        id: merge
+        if: steps.target.outputs.uptodate == 'false'
+        run: |
+          BRANCH="sync/${{ steps.target.outputs.target }}"
+          git checkout -B "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          if git merge --no-edit "${{ steps.target.outputs.target }}"; then
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            git add -A
+            git commit --no-edit -m "merge ${{ steps.target.outputs.target }} (CONFLICTS — resolve before merging)"
+          fi
+          git push -f origin "$BRANCH"
+
+      - name: Setup Node
+        if: steps.target.outputs.uptodate == 'false' && steps.merge.outputs.conflicts == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Typecheck (clean merges only)
+        id: typecheck
+        if: steps.target.outputs.uptodate == 'false' && steps.merge.outputs.conflicts == 'false'
+        continue-on-error: true
+        run: |
+          corepack enable
+          pnpm install --config.engine-strict=false --no-frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm exec tsc --project server/tsconfig.json --noEmit
+
+      - name: Open / update PR
+        if: steps.target.outputs.uptodate == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ steps.merge.outputs.conflicts }}" = "true" ]; then
+            TITLE="⚠️ Upstream sync ${{ steps.target.outputs.target }} — merge conflicts"
+            BODY="Automated merge of upstream \`${{ steps.target.outputs.target }}\` into \`music\` hit **conflicts**. This branch contains conflict markers — resolve them locally, then merge. Do not merge as-is."
+          else
+            TITLE="Upstream sync ${{ steps.target.outputs.target }}"
+            BODY="Automated **clean** merge of upstream \`${{ steps.target.outputs.target }}\` into \`music\`. Typecheck outcome: \`${{ steps.typecheck.outcome }}\`. Review and merge to rebuild the image."
+          fi
+          gh pr create --base music --head "${{ steps.merge.outputs.branch }}" \
+            --title "$TITLE" --body "$BODY" 2>/dev/null \
+            || gh pr edit "${{ steps.merge.outputs.branch }}" --title "$TITLE" --body "$BODY"
