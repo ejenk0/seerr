@@ -187,6 +187,47 @@ class MusicBrainz extends ExternalAPI {
       );
     }
   }
+
+  /**
+   * Returns external identifiers linked from the artist's MusicBrainz URL
+   * relationships (IMDb, Wikidata). Used to verify a TMDB person mapping via a
+   * real cross-reference instead of an unreliable name match.
+   */
+  public async getArtistExternalIds(
+    artistMbid: string
+  ): Promise<{ imdbId?: string; wikidataId?: string }> {
+    try {
+      const data = await this.get<{
+        relations?: { type: string; url?: { resource: string } }[];
+      }>(
+        `/artist/${artistMbid}`,
+        {
+          params: {
+            inc: 'url-rels',
+            fmt: 'json',
+          },
+        },
+        43200
+      );
+
+      const result: { imdbId?: string; wikidataId?: string } = {};
+      for (const rel of data.relations ?? []) {
+        const url = rel.url?.resource ?? '';
+        const imdb = url.match(/imdb\.com\/name\/(nm\d+)/i);
+        if (imdb && !result.imdbId) {
+          result.imdbId = imdb[1];
+        }
+        const wikidata = url.match(/wikidata\.org\/(?:wiki|entity)\/(Q\d+)/i);
+        if (wikidata && !result.wikidataId) {
+          result.wikidataId = wikidata[1];
+        }
+      }
+      return result;
+    } catch (e) {
+      // Non-fatal: without external IDs we simply produce no mapping.
+      return {};
+    }
+  }
 }
 
 export default MusicBrainz;

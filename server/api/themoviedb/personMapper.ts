@@ -1,4 +1,5 @@
 import ExternalAPI from '@server/api/externalapi';
+import MusicBrainz from '@server/api/musicbrainz';
 import TheMovieDb from '@server/api/themoviedb';
 import { getRepository } from '@server/datasource';
 import MetadataArtist from '@server/entity/MetadataArtist';
@@ -127,113 +128,49 @@ class TmdbPersonMapper extends ExternalAPI {
         };
       }
 
-      const cleanArtistName = artistName
-        .split(/(?:(?:feat|ft)\.?\s+|&\s*|,\s+)/i)[0]
-        .trim()
-        .replace(/['′]/g, "'");
-
-      const searchResults = await this.get<TmdbSearchPersonResponse>(
-        '/search/person',
-        {
-          params: {
-            query: cleanArtistName,
-            page: '1',
-            include_adult: 'false',
-            language: 'en',
-          },
-        },
-        this.CACHE_TTL
+      // Verify identity via a real cross-reference (MusicBrainz URL relations
+      // -> IMDb / Wikidata -> TMDB), never a name match, so we don't conflate
+      // same-named people (e.g. a musician and an unrelated actor).
+      const musicbrainz = new MusicBrainz();
+      const { imdbId, wikidataId } = await musicbrainz.getArtistExternalIds(
+        artistId
       );
 
-      const normalizeName = (name: string): string => {
-        return name
-          .toLowerCase()
-          .normalize('NFKD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/['′]/g, "'")
-          .replace(/[^a-z0-9\s]/g, '')
-          .trim();
+      let match: { id: number; profilePath: string | null } | null = null;
+
+      if (imdbId) {
+        match = await this.resolveTmdbPersonByImdb(imdbId);
+      }
+
+      if (!match && wikidataId) {
+        match = await this.resolveTmdbPersonByWikidata(wikidataId);
+      }
+
+      const mapping = {
+        personId: match?.id ?? null,
+        profilePath: match?.profilePath ?? null,
       };
 
-      const exactMatches = searchResults.results.filter((person) => {
-        const normalizedPersonName = normalizeName(person.name);
-        const normalizedArtistName = normalizeName(cleanArtistName);
-
-        return normalizedPersonName === normalizedArtistName;
-      });
-
-      if (exactMatches.length > 0) {
-        const tmdbPersonIds = exactMatches.map((match) => match.id.toString());
-        const existingMappings = await getRepository(MetadataArtist).find({
-          where: { tmdbPersonId: In(tmdbPersonIds) },
-          select: ['mbArtistId', 'tmdbPersonId'],
-        });
-
-        const availableMatches = exactMatches.filter(
-          (match) =>
-            !existingMappings.some(
-              (mapping) =>
-                mapping.tmdbPersonId === match.id.toString() &&
-                mapping.mbArtistId !== artistId
-            )
-        );
-
-        const soundMatches = availableMatches.filter(
-          (person) => person.known_for_department === 'Sound'
-        );
-
-        const exactMatch =
-          soundMatches.length > 0
-            ? soundMatches.reduce((prev, current) =>
-                current.popularity > prev.popularity ? current : prev
-              )
-            : availableMatches.length > 0
-            ? availableMatches.reduce((prev, current) =>
-                current.popularity > prev.popularity ? current : prev
-              )
-            : null;
-
-        const mapping = {
-          personId: exactMatch?.id ?? null,
-          profilePath: exactMatch?.profile_path
-            ? `https://image.tmdb.org/t/p/w500${exactMatch.profile_path}`
-            : null,
-        };
-
-        await getRepository(MetadataArtist)
-          .upsert(
-            {
-              mbArtistId: artistId,
-              tmdbPersonId: mapping.personId?.toString() ?? null,
-              tmdbThumb: mapping.profilePath,
-              tmdbUpdatedAt: new Date(),
-            },
-            {
-              conflictPaths: ['mbArtistId'],
-            }
-          )
-          .catch((e) => {
-            logger.error('Failed to save artist metadata', {
-              label: 'TmdbPersonMapper',
-              error: e instanceof Error ? e.message : 'Unknown error',
-            });
-          });
-
-        return mapping;
-      } else {
-        await getRepository(MetadataArtist).upsert(
+      await getRepository(MetadataArtist)
+        .upsert(
           {
             mbArtistId: artistId,
-            tmdbPersonId: null,
-            tmdbThumb: null,
+            tmdbPersonId: mapping.personId?.toString() ?? null,
+            tmdbThumb: mapping.profilePath,
             tmdbUpdatedAt: new Date(),
           },
           {
             conflictPaths: ['mbArtistId'],
           }
-        );
-        return this.createEmptyResponse();
-      }
+        )
+        .catch((e) => {
+          logger.error('Failed to save artist metadata', {
+            label: 'TmdbPersonMapper',
+            error: e instanceof Error ? e.message : 'Unknown error',
+          });
+        });
+
+      return mapping;
     } catch (error) {
       await getRepository(MetadataArtist).upsert(
         {
@@ -247,6 +184,67 @@ class TmdbPersonMapper extends ExternalAPI {
         }
       );
       return this.createEmptyResponse();
+    }
+  }
+
+  /**
+   * Resolve a verified TMDB person from an IMDb name id (nm) via TMDB's
+   * find-by-external-id endpoint. An identity cross-reference, not a name
+   * guess, so it will not conflate same-named people.
+   */
+  private async resolveTmdbPersonByImdb(
+    imdbId: string
+  ): Promise<{ id: number; profilePath: string | null } | null> {
+    const res = await this.tmdb.getByExternalId({
+      externalId: imdbId,
+      type: 'imdb',
+    });
+    const person = res.person_results?.[0];
+    if (!person) {
+      return null;
+    }
+    return {
+      id: person.id,
+      profilePath: person.profile_path
+        ? `https://image.tmdb.org/t/p/w500${person.profile_path}`
+        : null,
+    };
+  }
+
+  /**
+   * Resolve a verified TMDB person from a Wikidata entity by bridging through
+   * its IMDb ID claim (P345). Returns null when the entity has no IMDb link.
+   */
+  private async resolveTmdbPersonByWikidata(
+    wikidataId: string
+  ): Promise<{ id: number; profilePath: string | null } | null> {
+    try {
+      const response = await fetch(
+        `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`
+      );
+      if (!response.ok) {
+        return null;
+      }
+      const data = (await response.json()) as {
+        entities?: Record<
+          string,
+          {
+            claims?: Record<
+              string,
+              { mainsnak?: { datavalue?: { value?: unknown } } }[]
+            >;
+          }
+        >;
+      };
+      const imdbId =
+        data.entities?.[wikidataId]?.claims?.P345?.[0]?.mainsnak?.datavalue
+          ?.value;
+      if (typeof imdbId === 'string' && /^nm\d+$/.test(imdbId)) {
+        return await this.resolveTmdbPersonByImdb(imdbId);
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 
